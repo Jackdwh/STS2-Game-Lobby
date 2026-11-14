@@ -61,6 +61,32 @@ internal static class LanConnectLobbyHandshakeCompatibility
             rawVersionInfo);
     }
 
+    internal static T PopulateJoinAscensions<T>(T message, object progress) where T : struct
+    {
+        object boxed = message;
+        FieldInfo? legacy = typeof(T).GetField("maxAscensionUnlocked", InstanceFields);
+        FieldInfo? standard = typeof(T).GetField("maxStandardAscension", InstanceFields);
+        FieldInfo? blitz = typeof(T).GetField("maxBlitzAscension", InstanceFields);
+        int ReadProgress(string name) => LanConnectGameModeCompatibility.ReadMember(progress, name) is int value
+            ? value
+            : throw new MissingMemberException(progress.GetType().FullName, name);
+
+        if (standard != null && blitz != null)
+        {
+            standard.SetValue(boxed, ReadProgress("MaxMultiplayerAscension"));
+            blitz.SetValue(boxed, ReadProgress("MaxBlitzAscension"));
+        }
+        else if (legacy != null && standard == null && blitz == null)
+        {
+            legacy.SetValue(boxed, ReadProgress("MaxMultiplayerAscension"));
+        }
+        else
+        {
+            throw new MissingFieldException(typeof(T).FullName, "join ascension fields");
+        }
+        return (T)boxed;
+    }
+
     internal static T AttachLocalVersionInfo<T>(T message)
         where T : struct
     {

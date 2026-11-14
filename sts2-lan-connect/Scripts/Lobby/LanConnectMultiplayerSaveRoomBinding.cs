@@ -376,8 +376,9 @@ internal static class LanConnectMultiplayerSaveRoomBinding
         return gameMode switch
         {
             GameMode.Standard => "standard",
-            GameMode.Custom => "custom",
+            var mode when LanConnectGameModeCompatibility.IsCustomSelection(mode) => "custom",
             GameMode.Daily => "daily",
+            var mode when mode.ToString() is "Blitz" or "Dread" => mode.ToString().ToLowerInvariant(),
             _ => LanConnectConstants.DefaultGameMode
         };
     }
@@ -400,6 +401,13 @@ internal static class LanConnectMultiplayerSaveRoomBinding
 
     public static string GetLobbyGameMode(SerializableRun run)
     {
+        // New saves carry an explicit custom flag; modifiers alone are no longer
+        // sufficient (a custom run can be empty, and Blitz/Dread have their own rules).
+        if (LanConnectGameModeCompatibility.ReadMember(run, "IsCustomGame") is bool custom
+            && LanConnectGameModeCompatibility.ReadMember(run, "GameMode") is GameMode mode)
+        {
+            return custom ? "custom" : mode.ToString().ToLowerInvariant();
+        }
         if (run.Modifiers.Count == 0)
         {
             return "standard";

@@ -1420,7 +1420,7 @@ internal sealed class LanConnectTailMessageRuntime : ILanConnectTailMessageRunti
                 {
                     throw new InvalidOperationException("Tail rejection call context was corrupted.");
                 }
-                host.DisconnectClient(senderPeerId, NetError.ModMismatch);
+                LanConnectNetGameServiceCompatibility.DisconnectClient(host, senderPeerId, NetError.ModMismatch);
             }
         }
         else
@@ -1655,7 +1655,7 @@ internal sealed class LanConnectTailMessageRuntime : ILanConnectTailMessageRunti
             {
                 try
                 {
-                    netHost.DisconnectClient(peerId, NetError.ModMismatch);
+                    LanConnectNetGameServiceCompatibility.DisconnectClient(netHost, peerId, NetError.ModMismatch);
                 }
                 catch (Exception disconnectException)
                 {

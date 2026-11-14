@@ -438,6 +438,24 @@ internal static class LanConnectLobbyJoinFlow
 
     internal static void PushJoinedScreen(NSubmenuStack stack, NetClientGameService netService, JoinResult joinResult)
     {
+        if (LanConnectGameModeCompatibility.IsCustom(joinResult))
+        {
+            if (joinResult.sessionState == RunSessionState.InLobby)
+            {
+                NCustomRunScreen custom = stack.GetSubmenuType<NCustomRunScreen>();
+                custom.InitializeMultiplayerAsClient(netService, joinResult.joinResponse!.Value);
+                stack.Push(custom);
+                return;
+            }
+            if (joinResult.sessionState == RunSessionState.InLoadedLobby)
+            {
+                NCustomRunLoadScreen custom = stack.GetSubmenuType<NCustomRunLoadScreen>();
+                custom.InitializeAsClient(netService, joinResult.loadJoinResponse!.Value);
+                stack.Push(custom);
+                return;
+            }
+        }
+
         if (joinResult.sessionState == RunSessionState.InLobby)
         {
             switch (joinResult.gameMode)
@@ -456,10 +474,15 @@ internal static class LanConnectLobbyJoinFlow
                     stack.Push(submenu);
                     return;
                 }
-                case GameMode.Custom:
+                case var mode when mode.ToString() is "Blitz" or "Dread":
                 {
-                    NCustomRunScreen submenu = stack.GetSubmenuType<NCustomRunScreen>();
-                    submenu.InitializeMultiplayerAsClient(netService, joinResult.joinResponse!.Value);
+                    string name = mode.ToString();
+                    Type screenType = typeof(NSubmenu).Assembly.GetType(
+                        $"MegaCrit.Sts2.Core.Nodes.Screens.{name}.N{name}Screen", throwOnError: true)!;
+                    NSubmenu submenu = stack.GetSubmenuType(screenType);
+                    System.Reflection.MethodInfo initialize = screenType.GetMethod("InitializeMultiplayerAsClient")
+                        ?? throw new MissingMethodException(screenType.FullName, "InitializeMultiplayerAsClient");
+                    initialize.Invoke(submenu, [netService, joinResult.joinResponse!.Value]);
                     stack.Push(submenu);
                     return;
                 }
@@ -471,6 +494,7 @@ internal static class LanConnectLobbyJoinFlow
             switch (joinResult.gameMode)
             {
                 case GameMode.Standard:
+                case var mode when mode.ToString() is "Blitz" or "Dread":
                 {
                     NMultiplayerLoadGameScreen submenu = stack.GetSubmenuType<NMultiplayerLoadGameScreen>();
                     submenu.InitializeAsClient(netService, joinResult.loadJoinResponse!.Value);
@@ -480,13 +504,6 @@ internal static class LanConnectLobbyJoinFlow
                 case GameMode.Daily:
                 {
                     NDailyRunLoadScreen submenu = stack.GetSubmenuType<NDailyRunLoadScreen>();
-                    submenu.InitializeAsClient(netService, joinResult.loadJoinResponse!.Value);
-                    stack.Push(submenu);
-                    return;
-                }
-                case GameMode.Custom:
-                {
-                    NCustomRunLoadScreen submenu = stack.GetSubmenuType<NCustomRunLoadScreen>();
                     submenu.InitializeAsClient(netService, joinResult.loadJoinResponse!.Value);
                     stack.Push(submenu);
                     return;

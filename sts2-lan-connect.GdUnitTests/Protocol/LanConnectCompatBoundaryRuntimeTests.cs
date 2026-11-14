@@ -99,7 +99,7 @@ public sealed class LanConnectCompatBoundaryRuntimeTests
 
         ClientLobbyJoinResponseMessage message = new()
         {
-            playersInLobby = StartRunPlayers([4, 5, 6, 7]),
+            playersInLobby = StartRunPlayers([0, 1, 2, 3, 4, 5, 6, 7]),
             dailyTime = null,
             ascension = 8,
             seed = null,
@@ -109,7 +109,7 @@ public sealed class LanConnectCompatBoundaryRuntimeTests
         byte[] generated = buffer.AsSpan(0, length).ToArray();
 
         AssertThat(scope.CapturedLogs.Any(static line => line.Contains(
-            "lobby join-response forced at message-bus boundary players=4, lobbyListBits=5, bodyBytes=",
+            "lobby join-response forced at message-bus boundary players=8, lobbyListBits=5, bodyBytes=",
             StringComparison.Ordinal))).IsTrue();
 
         PacketReader reader = new();
@@ -118,10 +118,17 @@ public sealed class LanConnectCompatBoundaryRuntimeTests
         AssertThat(reader.ReadULong()).IsEqual(scope.Pair.HostId);
         List<StartRunLobbyPlayer> players = reader.ReadList<StartRunLobbyPlayer>(
             LanConnectConstants.ExtendedLobbyListBits);
-        AssertThat(players.Count).IsEqual(4);
-        AssertThat(players.Select(static player => player.slotId).ToArray()).IsEqual(new[] { 4, 5, 6, 7 });
+        AssertThat(players.Count).IsEqual(8);
+        AssertThat(players.Select(static player => player.slotId).ToArray()).IsEqual(new[] { 0, 1, 2, 3, 4, 5, 6, 7 });
         AssertThat(reader.ReadBool()).IsFalse();
         AssertThat(reader.ReadBool()).IsFalse();
+        if (LanConnectSerializationPatches.ValidateJoinModeFields(typeof(ClientLobbyJoinResponseMessage)))
+        {
+            AssertThat(reader.ReadEnum<MegaCrit.Sts2.Core.Runs.GameMode>())
+                .IsEqual((MegaCrit.Sts2.Core.Runs.GameMode)typeof(ClientLobbyJoinResponseMessage)
+                    .GetField("gameMode")!.GetValue(message)!);
+            AssertThat(reader.ReadBool()).IsFalse();
+        }
         AssertThat(reader.ReadInt(5)).IsEqual(8);
         AssertThat(reader.ReadList<SerializableModifier>().Count).IsEqual(0);
         AssertThat(reader.BitPosition).IsLessEqual(length * 8);
@@ -130,7 +137,8 @@ public sealed class LanConnectCompatBoundaryRuntimeTests
         vanillaReader.Reset(generated);
         _ = vanillaReader.ReadByte();
         _ = vanillaReader.ReadULong();
-        AssertThat(vanillaReader.ReadInt(LanConnectConstants.VanillaLobbyListBits)).IsNotEqual(4);
+        // Eight cannot fit in the vanilla 3-bit count. Four would alias under both widths.
+        AssertThat(vanillaReader.ReadInt(LanConnectConstants.VanillaLobbyListBits)).IsNotEqual(8);
 
         AssertThat(IndexOf(generated, "STSLAN01"u8.ToArray()) < 0).IsTrue();
         AssertThat(scope.Pair.Runtime.BeginNativeTransport(
@@ -238,7 +246,8 @@ public sealed class LanConnectCompatBoundaryRuntimeTests
             slotId = slot,
             character = character,
             unlockState = new SerializableUnlockState(),
-            maxMultiplayerAscensionUnlocked = 20,
+            maxStandardAscension = 20,
+            maxBlitzAscension = 20,
             isModded = false,
             isReady = true
         }).ToList();
@@ -435,7 +444,7 @@ public sealed class LanConnectCompatBoundaryRuntimeTests
             SentToClients.Add(new CapturedPacket(peerId, bytes.AsSpan(0, length).ToArray()));
 
         public override void SendMessageToAll(byte[] bytes, int length, NetTransferMode mode, int channel = 0) { }
-        public override void DisconnectClient(ulong peerId, NetError reason, bool now = false) { }
+        public override void DisconnectClient(ulong peerId, NetError reason, bool now = false, string? debugReason = null) { }
         public override void StopHost(NetError reason, bool now = false) { }
         public override string? GetRawLobbyIdentifier() => null;
     }

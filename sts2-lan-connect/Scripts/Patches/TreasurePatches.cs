@@ -40,6 +40,7 @@ internal static class TreasurePatches
 
     private static readonly FieldInfo? HoldersInUseField = AccessTools.Field(typeof(NTreasureRoomRelicCollection), "_holdersInUse");
     private static readonly FieldInfo? MultiplayerHoldersField = AccessTools.Field(typeof(NTreasureRoomRelicCollection), "_multiplayerHolders");
+    private static readonly FieldInfo? HolderLayoutsField = AccessTools.Field(typeof(NTreasureRoomRelicCollection), "_holderLayouts");
     private static readonly FieldInfo? RunStateField = AccessTools.Field(typeof(NTreasureRoomRelicCollection), "_runState");
     private static readonly FieldInfo? SyncPlayerCollectionField = AccessTools.Field(typeof(TreasureRoomRelicSynchronizer), "_playerCollection");
     private static readonly FieldInfo? SyncLocalPlayerIdField = AccessTools.Field(typeof(TreasureRoomRelicSynchronizer), "_localPlayerId");
@@ -150,6 +151,13 @@ internal static class TreasurePatches
 
     private static void InitializeRelicsPrefix(NTreasureRoomRelicCollection __instance)
     {
+        IReadOnlyList<RelicModel>? currentRelics = RunManager.Instance.TreasureRoomRelicSynchronizer.CurrentRelics;
+        if (HolderLayoutsField?.GetValue(__instance) is List<Control> layouts)
+        {
+            EnsureHolderLayouts(layouts, currentRelics?.Count ?? 0);
+            return;
+        }
+
         List<NTreasureRoomRelicHolder>? holdersInUse = GetHoldersInUse(__instance);
         holdersInUse?.Clear();
         List<NTreasureRoomRelicHolder>? multiplayerHolders = GetMultiplayerHolders(__instance);
@@ -163,7 +171,6 @@ internal static class TreasurePatches
             }
         }
 
-        IReadOnlyList<RelicModel>? currentRelics = RunManager.Instance.TreasureRoomRelicSynchronizer.CurrentRelics;
         if (multiplayerHolders == null || currentRelics == null || currentRelics.Count <= multiplayerHolders.Count || multiplayerHolders.Count == 0)
         {
             return;
@@ -188,6 +195,43 @@ internal static class TreasurePatches
             newHolder.Visible = false;
             parent.AddChild(newHolder);
             multiplayerHolders.Add(newHolder);
+        }
+    }
+
+    internal static void EnsureHolderLayouts(List<Control> layouts, int relicCount)
+    {
+        if (relicCount <= layouts.Count)
+        {
+            return;
+        }
+        if (layouts.Count == 0)
+        {
+            throw new InvalidOperationException("Treasure room has no holder layout to extend.");
+        }
+
+        // 0.113 selects layout[relicCount - 1]. Extend that table so the original
+        // initializer still owns relic indices, signals and voting/navigation setup.
+        while (layouts.Count < relicCount)
+        {
+            Control template = layouts[^1];
+            Control layout = (Control)template.Duplicate(14); // Do not copy live signals.
+            layout.Name = $"LanConnectLayout_{layouts.Count + 1}";
+            layout.Visible = false;
+            List<NTreasureRoomRelicHolder> holders = layout.GetChildren().OfType<NTreasureRoomRelicHolder>().ToList();
+            if (holders.Count == 0)
+            {
+                layout.Free();
+                throw new InvalidOperationException("Treasure layout has no relic holders to clone.");
+            }
+            while (holders.Count < layouts.Count + 1)
+            {
+                NTreasureRoomRelicHolder holder = (NTreasureRoomRelicHolder)holders[^1].Duplicate(14);
+                holder.Name = $"AutoHolder_{holders.Count + 1}";
+                layout.AddChild(holder);
+                holders.Add(holder);
+            }
+            template.GetParent().AddChild(layout);
+            layouts.Add(layout);
         }
     }
 
@@ -591,16 +635,12 @@ internal static class TreasurePatches
             }
             else if (voters.Count == 1)
             {
-                results.Add(new RelicPickingResult
-                {
-                    type = RelicPickingResultType.OnlyOnePlayerVoted,
-                    player = voters[0],
-                    relic = relics[i]
-                });
+                results.Add(CreateRelicPickingResult(
+                    RelicPickingResultType.OnlyOnePlayerVoted, voters[0], relics[i], i));
             }
             else
             {
-                results.Add(RelicPickingResult.GenerateRelicFight(voters, relics[i],
+                results.Add(GenerateRelicFight(voters, relics[i], i,
                     () => rng != null ? rng.NextItem(fightMoves) : fightMoves[0]));
             }
         }
@@ -625,12 +665,9 @@ internal static class TreasurePatches
 
         for (int i = 0; i < Math.Min(unclaimedRelics.Count, playersWithoutRelic.Count); i++)
         {
-            results.Add(new RelicPickingResult
-            {
-                type = RelicPickingResultType.ConsolationPrize,
-                player = playersWithoutRelic[i],
-                relic = unclaimedRelics[i]
-            });
+            results.Add(CreateRelicPickingResult(
+                RelicPickingResultType.ConsolationPrize, playersWithoutRelic[i], unclaimedRelics[i],
+                relics.IndexOf(unclaimedRelics[i])));
         }
 
         if (results.Count > 0)
@@ -640,6 +677,34 @@ internal static class TreasurePatches
 
         ClearLocalVoteState(sync);
         InvokeEndRelicVoting(sync);
+    }
+
+    internal static RelicPickingResult CreateRelicPickingResult(
+        RelicPickingResultType type, Player player, RelicModel relic, int relicIndex)
+    {
+        // 0.113 adds required relicIndex; reflection keeps the legacy vote path loadable
+        // on older games without binding to a field that does not exist there.
+        RelicPickingResult result = Activator.CreateInstance<RelicPickingResult>();
+        result.type = type;
+        result.player = player;
+        result.relic = relic;
+        typeof(RelicPickingResult).GetField("relicIndex")?.SetValue(result, relicIndex);
+        return result;
+    }
+
+    private static RelicPickingResult GenerateRelicFight(
+        List<Player> players, RelicModel relic, int relicIndex, Func<RelicPickingFightMove> generateMove)
+    {
+        MethodInfo? indexed = typeof(RelicPickingResult).GetMethod("GenerateRelicFight",
+            [typeof(List<Player>), typeof(RelicModel), typeof(int), typeof(Func<RelicPickingFightMove>)]);
+        if (indexed != null)
+        {
+            return (RelicPickingResult)indexed.Invoke(null, [players, relic, relicIndex, generateMove])!;
+        }
+        MethodInfo legacy = typeof(RelicPickingResult).GetMethod("GenerateRelicFight",
+            [typeof(List<Player>), typeof(RelicModel), typeof(Func<RelicPickingFightMove>)])
+            ?? throw new MissingMethodException(typeof(RelicPickingResult).FullName, "GenerateRelicFight");
+        return (RelicPickingResult)legacy.Invoke(null, [players, relic, generateMove])!;
     }
 
     private static void InvokeVotesChanged(TreasureRoomRelicSynchronizer sync)

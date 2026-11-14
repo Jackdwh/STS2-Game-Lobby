@@ -31,7 +31,11 @@ internal static class HostSubmenuPatches
                 return;
             }
 
-            NSubmenuButton template = submenu.GetNode<NSubmenuButton>("StandardButton");
+            NSubmenuButton? template = FindNativeModeButton(submenu, "StandardButton");
+            if (template == null)
+            {
+                return;
+            }
             Node parent = template.GetParent();
             NSubmenuButton? lanButton = template.Duplicate(DuplicateWithoutSignals) as NSubmenuButton;
             if (lanButton == null)
@@ -108,9 +112,9 @@ internal static class HostSubmenuPatches
         EnsureLanHostButton(submenu);
         if (!alreadyInstalled && FindHostButton(submenu) != null)
         {
-            NSubmenuButton template = submenu.GetNode<NSubmenuButton>("StandardButton");
-            Node? parent = template.GetParent();
-            Log.Info($"sts2_lan_connect injected LAN host button via {source}; template={template.GetPath()}, parentType={parent?.GetType().FullName ?? "<null>"}");
+            NSubmenuButton? template = FindNativeModeButton(submenu, "StandardButton");
+            Node? parent = template?.GetParent();
+            Log.Info($"sts2_lan_connect injected LAN host button via {source}; template={template?.GetPath()}, parentType={parent?.GetType().FullName ?? "<null>"}");
         }
     }
 
@@ -130,11 +134,24 @@ internal static class HostSubmenuPatches
         picker.Open();
     }
 
-    internal static LanConnectLanHostModeAvailability GetModeAvailability(
-        NMultiplayerHostSubmenu submenu) => new(
-        submenu.GetNode<NSubmenuButton>("StandardButton").IsEnabled,
-        submenu.GetNode<NSubmenuButton>("DailyButton").IsEnabled,
-        submenu.GetNode<NSubmenuButton>("CustomRunButton").IsEnabled);
+    internal static NSubmenuButton? FindNativeModeButton(Node submenu, string name)
+    {
+        if (!GodotObject.IsInstanceValid(submenu))
+        {
+            return null;
+        }
+
+        // 0.113 nests mode buttons under containers and resolves them by scene-unique
+        // name. Older scenes use direct children; incomplete scenes must not call GetNode.
+        return submenu.GetNodeOrNull<NSubmenuButton>($"%{name}")
+            ?? submenu.GetNodeOrNull<NSubmenuButton>(name)
+            ?? submenu.FindChild(name, recursive: true, owned: false) as NSubmenuButton;
+    }
+
+    internal static LanConnectLanHostModeAvailability GetModeAvailability(Node submenu) => new(
+        FindNativeModeButton(submenu, "StandardButton")?.IsEnabled ?? false,
+        FindNativeModeButton(submenu, "DailyButton")?.IsEnabled ?? false,
+        FindNativeModeButton(submenu, "CustomRunButton")?.IsEnabled ?? false);
 
     private static async Task StartSelectedLanHostAsync(
         NMultiplayerHostSubmenu submenu,
@@ -153,7 +170,7 @@ internal static class HostSubmenuPatches
         {
             LanConnectLanHostMode.Standard => GameMode.Standard,
             LanConnectLanHostMode.Daily => GameMode.Daily,
-            LanConnectLanHostMode.Custom => GameMode.Custom,
+            LanConnectLanHostMode.Custom => LanConnectGameModeCompatibility.CustomSelection,
             _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, null)
         };
         await LanConnectHostFlow.StartLanHostAsync(gameMode, loadingOverlay, stack);

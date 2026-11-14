@@ -8,6 +8,7 @@ using MegaCrit.Sts2.Core.Logging;
 using MegaCrit.Sts2.Core.Multiplayer;
 using MegaCrit.Sts2.Core.Multiplayer.Messages.Lobby;
 using MegaCrit.Sts2.Core.Multiplayer.Serialization;
+using MegaCrit.Sts2.Core.Runs;
 
 namespace Sts2LanConnect.Scripts;
 
@@ -350,6 +351,22 @@ internal static class LanConnectSerializationPatches
         RequireField(joinResponseType, "seed", static type => type == typeof(string));
         RequireField(joinResponseType, "ascension", static type => type == typeof(int));
         RequireField(joinResponseType, "modifiers", static type => IsList(type));
+        ValidateJoinModeFields(joinResponseType);
+    }
+
+    internal static bool ValidateJoinModeFields(Type messageType)
+    {
+        FieldInfo? mode = messageType.GetField("gameMode");
+        FieldInfo? custom = messageType.GetField("isCustom");
+        if (mode == null && custom == null)
+        {
+            return false;
+        }
+        if (mode?.FieldType != typeof(GameMode) || custom?.FieldType != typeof(bool))
+        {
+            throw new MissingFieldException(messageType.FullName, "gameMode/isCustom wire fields");
+        }
+        return true;
     }
 
     private static void RequireField(Type declaringType, string fieldName, Func<Type, bool> isExpectedType)
@@ -585,6 +602,13 @@ internal static class LanConnectSerializationPatches
             writer.WriteString(message.seed);
         }
 
+        // 0.113 inserted these fields before ascension. Omitting them shifts every
+        // subsequent bit, so compat must mirror the runtime schema, not the build version.
+        if (ValidateJoinModeFields(typeof(ClientLobbyJoinResponseMessage)))
+        {
+            writer.WriteEnum((GameMode)typeof(ClientLobbyJoinResponseMessage).GetField("gameMode")!.GetValue(message)!);
+            writer.WriteBool((bool)typeof(ClientLobbyJoinResponseMessage).GetField("isCustom")!.GetValue(message)!);
+        }
         writer.WriteInt(message.ascension, JoinResponseAscensionBits);
         writer.WriteList(message.modifiers);
     }

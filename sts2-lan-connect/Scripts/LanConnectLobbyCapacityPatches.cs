@@ -67,8 +67,7 @@ internal static class LanConnectLobbyCapacityPatches
         int skipped = 0;
         int failed = 0;
 
-        ConstructorInfo? lobbyCtor = AccessTools.Constructor(typeof(StartRunLobby),
-            new[] { typeof(GameMode), typeof(INetGameService), typeof(IStartRunLobbyListener), typeof(int) });
+        ConstructorInfo? lobbyCtor = ResolveLobbyConstructor(typeof(StartRunLobby));
         TrySafePatch(harmony, lobbyCtor, "StartRunLobby.ctor",
             ref applied, ref skipped, ref failed,
             postfix: new HarmonyMethod(typeof(LanConnectLobbyCapacityPatches), nameof(StartRunLobbyCtorPostfix)));
@@ -85,6 +84,12 @@ internal static class LanConnectLobbyCapacityPatches
 
         Log.Info($"sts2_lan_connect gameplay: lobby capacity patches applied={applied}, skipped={skipped}, failed={failed}.");
     }
+
+    internal static ConstructorInfo? ResolveLobbyConstructor(Type lobbyType) =>
+        AccessTools.Constructor(lobbyType,
+            [typeof(GameMode), typeof(bool), typeof(INetGameService), typeof(IStartRunLobbyListener), typeof(int)])
+        ?? AccessTools.Constructor(lobbyType,
+            [typeof(GameMode), typeof(INetGameService), typeof(IStartRunLobbyListener), typeof(int)]);
 
     private static void TrySafePatch(
         Harmony harmony,

@@ -252,7 +252,8 @@ internal static class LanConnectRemoteLobbyPlayerPatches
             try
             {
                 bool disconnected = disconnectIfCurrent(() =>
-                    hostService.DisconnectClient(
+                    LanConnectNetGameServiceCompatibility.DisconnectClient(
+                        hostService,
                         targetNetId,
                         MegaCrit.Sts2.Core.Entities.Multiplayer.NetError.Quit,
                         now: false));

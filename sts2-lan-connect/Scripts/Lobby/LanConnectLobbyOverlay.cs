@@ -5069,7 +5069,7 @@ internal sealed partial class LanConnectLobbyOverlay : Control
         return _selectedCreateGameModeId switch
         {
             1 => GameMode.Daily,
-            2 => GameMode.Custom,
+            2 => LanConnectGameModeCompatibility.CustomSelection,
             _ => GameMode.Standard
         };
     }
@@ -5182,7 +5182,7 @@ internal sealed partial class LanConnectLobbyOverlay : Control
     private static GameMode GameModeFromCreateId(int id) => id switch
     {
         1 => GameMode.Daily,
-        2 => GameMode.Custom,
+        2 => LanConnectGameModeCompatibility.CustomSelection,
         _ => GameMode.Standard
     };
 
@@ -5192,14 +5192,14 @@ internal sealed partial class LanConnectLobbyOverlay : Control
     {
         GameMode.Standard => availability.Standard,
         GameMode.Daily => availability.Daily,
-        GameMode.Custom => availability.Custom,
+        var mode when LanConnectGameModeCompatibility.IsCustomSelection(mode) => availability.Custom,
         _ => false
     };
 
     private static string GetLockedCreateGameModeMessage(GameMode gameMode) => gameMode switch
     {
         GameMode.Daily => "多人每日挑战尚未解锁，当前不能创建该类型房间。",
-        GameMode.Custom => "自定义模式尚未解锁，当前不能创建该类型房间。",
+        var mode when LanConnectGameModeCompatibility.IsCustomSelection(mode) => "自定义模式尚未解锁，当前不能创建该类型房间。",
         _ => "该模式尚未解锁，当前不能创建房间。"
     };
 

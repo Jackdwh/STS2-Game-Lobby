@@ -419,7 +419,10 @@ internal static class LanConnectContinueRunLobbyAutoPublisher
             return false;
         }
 
-        context = new ContinuedRunHostContext(netService, lobby.Run, lobby.GameMode, screen.GetType().Name);
+        GameMode mode = LanConnectGameModeCompatibility.ReadMember(lobby.Run, "IsCustomGame") is true
+            ? LanConnectGameModeCompatibility.CustomSelection
+            : lobby.GameMode;
+        context = new ContinuedRunHostContext(netService, lobby.Run, mode, screen.GetType().Name);
         return true;
     }
 

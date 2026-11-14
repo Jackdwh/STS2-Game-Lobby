@@ -24,6 +24,7 @@ internal static class LanConnectGameplayPatches
 
         // Compatibility guards are load-bearing for save integrity and the Android join screen;
         // they must apply even when RMP is present and gameplay patches are skipped.
+        if (TryApplyGroup("RestartLifecycle", () => LanConnectRestartLifecyclePatches.Apply(HarmonyInstance))) applied++; else failed++;
         if (TryApplyGroup("SaveManager", () => LanConnectSaveManagerPatches.Apply(HarmonyInstance))) applied++; else failed++;
         if (TryApplyGroup("JoinScreenAutoJoin", () => LanConnectJoinScreenAutoJoinPatches.Apply(HarmonyInstance))) applied++; else failed++;
         if (TryApplyGroup("PeerVersionInfo", () => LanConnectPeerVersionInfoPatches.Apply(HarmonyInstance))) applied++; else failed++;

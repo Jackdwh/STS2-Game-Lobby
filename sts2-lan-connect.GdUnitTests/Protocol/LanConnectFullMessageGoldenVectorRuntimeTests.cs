@@ -222,6 +222,11 @@ public sealed class LanConnectFullMessageGoldenVectorRuntimeTests
         {
             return;
         }
+        if (typeof(InitialGameInfoMessage).GetField("gameMode") == null)
+        {
+            throw new InvalidOperationException(
+                "These fixtures describe the 0.111 wire schema. Do not overwrite them with 0.113 game bytes; create a versioned fixture set instead.");
+        }
 
         InitializeSts2Serialization();
         using NativeTypeIdScope typeId = new();
@@ -332,21 +337,14 @@ public sealed class LanConnectFullMessageGoldenVectorRuntimeTests
         yield return Host(
             "tail-full-initial-game-info-v1",
             LanConnectSidecarMessageKind.InitialGameInfo,
-            () => new InitialGameInfoMessage
-            {
-                sessionState = RunSessionState.InLobby,
-                gameMode = GameMode.Standard,
-                connectionFailureReason = null
-            },
+            () => InitialMessage(connectionFailureReason: null),
             new Expected("selection") { SessionState = "InLobby", GameMode = "Standard" });
         yield return Client(
             "tail-full-lobby-join-request-v1",
             LanConnectSidecarMessageKind.LobbyJoinRequest,
-            () => new ClientLobbyJoinRequestMessage
-            {
-                maxAscensionUnlocked = 12,
-                unlockState = new SerializableUnlockState()
-            },
+            () => LanConnectLobbyHandshakeCompatibility.PopulateJoinAscensions(
+                new ClientLobbyJoinRequestMessage { unlockState = new SerializableUnlockState() },
+                new FixtureProgress()),
             new Expected("peerOffer")
             {
                 MaxAscensionUnlocked = 12,
@@ -462,12 +460,7 @@ public sealed class LanConnectFullMessageGoldenVectorRuntimeTests
             yield return Host(
                 name,
                 LanConnectSidecarMessageKind.ConnectionFailed,
-                () => new InitialGameInfoMessage
-                {
-                    sessionState = RunSessionState.InLobby,
-                    gameMode = GameMode.Standard,
-                    connectionFailureReason = ConnectionFailureReason.ModMismatch
-                },
+                () => InitialMessage(ConnectionFailureReason.ModMismatch),
                 new Expected("rejection")
                 {
                     RejectionStage = stage,
@@ -496,17 +489,39 @@ public sealed class LanConnectFullMessageGoldenVectorRuntimeTests
         Expected expected) =>
         new(name, Direction.ClientToHost, kind, createMessage, expected, null);
 
+    private sealed class FixtureProgress
+    {
+        public int MaxMultiplayerAscension => 12;
+        public int MaxBlitzAscension => 12;
+    }
+
+    private static InitialGameInfoMessage InitialMessage(ConnectionFailureReason? connectionFailureReason)
+    {
+        object message = new InitialGameInfoMessage
+        {
+            sessionState = RunSessionState.InLobby,
+            connectionFailureReason = connectionFailureReason
+        };
+        typeof(InitialGameInfoMessage).GetField("gameMode")?.SetValue(message, GameMode.Standard);
+        return (InitialGameInfoMessage)message;
+    }
+
     private static void AssertBodySemantics(MessageSpec spec, INetMessage message)
     {
         switch (message)
         {
             case InitialGameInfoMessage initial:
                 AssertThat(initial.sessionState.ToString()).IsEqual(spec.Expected.SessionState);
-                AssertThat(initial.gameMode.ToString()).IsEqual(spec.Expected.GameMode);
+                if (typeof(InitialGameInfoMessage).GetField("gameMode") is { } initialMode)
+                {
+                    AssertThat(initialMode.GetValue(initial)!.ToString()).IsEqual(spec.Expected.GameMode);
+                }
                 AssertThat(initial.connectionFailureReason?.ToString()).IsEqual(spec.Expected.ConnectionFailureReason);
                 break;
             case ClientLobbyJoinRequestMessage request:
-                AssertThat(request.maxAscensionUnlocked).IsEqual(spec.Expected.MaxAscensionUnlocked!.Value);
+                FieldInfo ascension = typeof(ClientLobbyJoinRequestMessage).GetField("maxStandardAscension")
+                    ?? typeof(ClientLobbyJoinRequestMessage).GetField("maxAscensionUnlocked")!;
+                AssertThat((int)ascension.GetValue(request)!).IsEqual(spec.Expected.MaxAscensionUnlocked!.Value);
                 break;
             case ClientLobbyJoinResponseMessage response:
                 AssertThat(response.ascension).IsEqual(spec.Expected.Ascension!.Value);
@@ -639,7 +654,8 @@ public sealed class LanConnectFullMessageGoldenVectorRuntimeTests
             slotId = slot,
             character = character,
             unlockState = new SerializableUnlockState(),
-            maxMultiplayerAscensionUnlocked = 20,
+            maxStandardAscension = 20,
+            maxBlitzAscension = 20,
             isModded = false,
             isReady = true
         }).ToList();
@@ -830,7 +846,7 @@ public sealed class LanConnectFullMessageGoldenVectorRuntimeTests
             int channel = 0) =>
             SentToClients.Add(new CapturedPacket(peerId, bytes.AsSpan(0, length).ToArray()));
         public override void SendMessageToAll(byte[] bytes, int length, NetTransferMode mode, int channel = 0) { }
-        public override void DisconnectClient(ulong peerId, NetError reason, bool now = false) { }
+        public override void DisconnectClient(ulong peerId, NetError reason, bool now = false, string? debugReason = null) { }
         public override void StopHost(NetError reason, bool now = false) { }
         public override string? GetRawLobbyIdentifier() => null;
     }

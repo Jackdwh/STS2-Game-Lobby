@@ -908,7 +908,8 @@ public sealed class LanConnectTailMessageRuntimeTests
                 slotId = slot,
                 character = character,
                 unlockState = new SerializableUnlockState(),
-                maxMultiplayerAscensionUnlocked = 20,
+                maxStandardAscension = 20,
+                maxBlitzAscension = 20,
                 isModded = false,
                 isReady = true
             })
@@ -1222,7 +1223,7 @@ public sealed class LanConnectTailMessageRuntimeTests
             NetTransferMode mode,
             int channel = 0) { }
 
-        public override void DisconnectClient(ulong peerId, NetError reason, bool now = false) =>
+        public override void DisconnectClient(ulong peerId, NetError reason, bool now = false, string? debugReason = null) =>
             DisconnectedPeers.Add(peerId);
 
         public override void StopHost(NetError reason, bool now = false) { }
