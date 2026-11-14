@@ -84,6 +84,28 @@ public sealed class LanConnectCreateProtocolDialogTests
         AssertThat(popupMessage).Contains("自定义模式尚未解锁");
     }
 
+    [TestCase(3, "极速模式")]
+    [TestCase(4, "恐惧模式")]
+    public async Task Additional_modes_follow_native_availability_and_reset_when_locked(int id, string label)
+    {
+        using LobbyOverlayFixture fixture = await LobbyOverlayFixture.Create(
+            new Vector2I(1280, 720), LanConnectServerChatPresentation.Ready);
+        fixture.Overlay.SetCreateGameModeAvailabilityForTests(new(true, true, true));
+        string warning = string.Empty;
+        fixture.Overlay.SetCreateGameModePopupForTests((_, message) => warning = message);
+        fixture.Overlay.OpenCreateDialogForTests();
+        await fixture.Runner.AwaitIdleFrame();
+        AssertThat(fixture.Overlay.CreateGameModeOptionLabelsForTests()).Contains($"{label}（未解锁）");
+        fixture.Overlay.SelectCreateGameModeForTests(id);
+        AssertThat(fixture.Overlay.SelectedCreateGameModeIdForTests).IsEqual(0);
+        AssertThat(warning).Contains(label);
+        fixture.Overlay.SetCreateGameModeAvailabilityForTests(new(true, true, true, true, true));
+        fixture.Overlay.SelectCreateGameModeForTests(id);
+        AssertThat(fixture.Overlay.SelectedCreateGameModeIdForTests).IsEqual(id);
+        fixture.Overlay.SetCreateGameModeAvailabilityForTests(new(true, true, true));
+        AssertThat(fixture.Overlay.SelectedCreateGameModeIdForTests).IsEqual(0);
+    }
+
     [TestCase]
     public async Task Create_dialog_defaults_to_compat_without_Ritsu_and_exposes_tail_warning()
     {

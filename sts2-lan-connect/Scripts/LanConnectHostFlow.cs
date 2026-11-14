@@ -1,10 +1,12 @@
 using System;
 using System.Linq;
+using System.Reflection;
 using System.Threading.Tasks;
 using Godot;
 using MegaCrit.Sts2.Core.Entities.Multiplayer;
 using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.Multiplayer;
+using MegaCrit.Sts2.Core.Multiplayer.Game;
 using MegaCrit.Sts2.Core.Nodes.CommonUi;
 using MegaCrit.Sts2.Core.Nodes.Screens.CharacterSelect;
 using MegaCrit.Sts2.Core.Nodes.Screens.CustomRun;
@@ -654,13 +656,25 @@ internal static class LanConnectHostFlow
                 stack.Push(submenu);
                 break;
             }
-            default:
+            case var mode when mode.ToString() is "Blitz" or "Dread":
+            {
+                Type screenType = LanConnectGameModeCompatibility.ResolveAdditionalStartScreen(mode);
+                NSubmenu submenu = stack.GetSubmenuType(screenType);
+                MethodInfo initialize = screenType.GetMethod("InitializeMultiplayerAsHost", [typeof(INetGameService), typeof(int)])
+                    ?? throw new MissingMethodException(screenType.FullName, "InitializeMultiplayerAsHost");
+                initialize.Invoke(submenu, [netService, maxPlayers]);
+                stack.Push(submenu);
+                break;
+            }
+            case var mode when LanConnectGameModeCompatibility.IsCustomSelection(mode):
             {
                 NCustomRunScreen submenu = stack.GetSubmenuType<NCustomRunScreen>();
                 submenu.InitializeMultiplayerAsHost(netService, maxPlayers);
                 stack.Push(submenu);
                 break;
             }
+            default:
+                throw new ArgumentOutOfRangeException(nameof(gameMode), gameMode, "Unsupported host game mode.");
         }
     }
 }

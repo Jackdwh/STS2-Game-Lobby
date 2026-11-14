@@ -6,13 +6,17 @@ internal enum LanConnectLanHostMode
 {
     Standard,
     Daily,
-    Custom
+    Custom,
+    Blitz,
+    Dread
 }
 
 internal readonly record struct LanConnectLanHostModeAvailability(
     bool Standard,
     bool Daily,
-    bool Custom);
+    bool Custom,
+    bool Blitz = false,
+    bool Dread = false);
 
 internal readonly record struct LanConnectLanHostModeOption(
     int Id,
@@ -25,7 +29,9 @@ internal static class LanConnectLanHostModeSelection
     [
         new(0, "标准模式", LanConnectLanHostMode.Standard),
         new(1, "多人每日挑战", LanConnectLanHostMode.Daily),
-        new(2, "自定义模式", LanConnectLanHostMode.Custom)
+        new(2, "自定义模式", LanConnectLanHostMode.Custom),
+        new(3, "极速模式", LanConnectLanHostMode.Blitz),
+        new(4, "恐惧模式", LanConnectLanHostMode.Dread)
     ];
 
     public static bool TryResolve(
@@ -48,13 +54,15 @@ internal static class LanConnectLanHostModeSelection
         return false;
     }
 
-    private static bool IsAvailable(
+    internal static bool IsAvailable(
         LanConnectLanHostMode mode,
         LanConnectLanHostModeAvailability availability) => mode switch
     {
         LanConnectLanHostMode.Standard => availability.Standard,
         LanConnectLanHostMode.Daily => availability.Daily,
         LanConnectLanHostMode.Custom => availability.Custom,
+        LanConnectLanHostMode.Blitz => availability.Blitz,
+        LanConnectLanHostMode.Dread => availability.Dread,
         _ => false
     };
 }

@@ -394,27 +394,19 @@ internal static class LanConnectMultiplayerSaveRoomBinding
         {
             "daily" => "多人每日挑战",
             "custom" => "自定义模式",
+            "blitz" => "极速模式",
+            "dread" => "恐惧模式",
             "standard" or "" or null => "标准模式",
             _ => gameMode.Trim()
         };
     }
 
-    public static string GetLobbyGameMode(SerializableRun run)
-    {
-        // New saves carry an explicit custom flag; modifiers alone are no longer
-        // sufficient (a custom run can be empty, and Blitz/Dread have their own rules).
-        if (LanConnectGameModeCompatibility.ReadMember(run, "IsCustomGame") is bool custom
-            && LanConnectGameModeCompatibility.ReadMember(run, "GameMode") is GameMode mode)
-        {
-            return custom ? "custom" : mode.ToString().ToLowerInvariant();
-        }
-        if (run.Modifiers.Count == 0)
-        {
-            return "standard";
-        }
-
-        return run.DailyTime.HasValue ? "daily" : "custom";
-    }
+    public static string GetLobbyGameMode(SerializableRun run) =>
+        LanConnectGameModeCompatibility.ResolveSavedModeName(
+            LanConnectGameModeCompatibility.ReadMember(run, "GameMode")?.ToString(),
+            LanConnectGameModeCompatibility.ReadMember(run, "IsCustomGame") as bool?,
+            run.Modifiers.Count > 0,
+            run.DailyTime.HasValue);
 
     public static LobbySavedRunInfo BuildSavedRunInfo(SerializableRun run, ulong hostNetId, Dictionary<ulong, string>? storedPlayerNames = null)
     {

@@ -151,7 +151,11 @@ internal static class HostSubmenuPatches
     internal static LanConnectLanHostModeAvailability GetModeAvailability(Node submenu) => new(
         FindNativeModeButton(submenu, "StandardButton")?.IsEnabled ?? false,
         FindNativeModeButton(submenu, "DailyButton")?.IsEnabled ?? false,
-        FindNativeModeButton(submenu, "CustomRunButton")?.IsEnabled ?? false);
+        FindNativeModeButton(submenu, "CustomRunButton")?.IsEnabled ?? false,
+        LanConnectGameModeCompatibility.OptionalMode("Blitz") != GameMode.None
+            && (FindNativeModeButton(submenu, "BlitzButton")?.IsEnabled ?? false),
+        LanConnectGameModeCompatibility.OptionalMode("Dread") != GameMode.None
+            && (FindNativeModeButton(submenu, "DreadButton")?.IsEnabled ?? false));
 
     private static async Task StartSelectedLanHostAsync(
         NMultiplayerHostSubmenu submenu,
@@ -166,13 +170,12 @@ internal static class HostSubmenuPatches
             return;
         }
 
-        GameMode gameMode = mode switch
+        GameMode gameMode = LanConnectGameModeCompatibility.ToGameMode(mode);
+        if (gameMode == GameMode.None)
         {
-            LanConnectLanHostMode.Standard => GameMode.Standard,
-            LanConnectLanHostMode.Daily => GameMode.Daily,
-            LanConnectLanHostMode.Custom => LanConnectGameModeCompatibility.CustomSelection,
-            _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, null)
-        };
+            LanConnectPopupUtil.ShowInfo("当前游戏版本不支持所选模式。");
+            return;
+        }
         await LanConnectHostFlow.StartLanHostAsync(gameMode, loadingOverlay, stack);
     }
 
@@ -181,7 +184,7 @@ internal static class HostSubmenuPatches
         MegaLabel title = button.GetNode<MegaLabel>("%Title");
         MegaRichTextLabel description = button.GetNode<MegaRichTextLabel>("%Description");
         title.SetTextAutoSize("LAN 调试建房");
-        description.Text = "选择标准、每日挑战或自定义模式，直接启动 ENet LAN Host。";
+        description.Text = "选择已解锁的游戏模式，直接启动 ENet LAN Host。";
     }
 
     private static Control? FindHostButton(NMultiplayerHostSubmenu submenu)

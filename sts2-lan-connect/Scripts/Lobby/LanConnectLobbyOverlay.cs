@@ -2487,9 +2487,7 @@ internal sealed partial class LanConnectLobbyOverlay : Control
         Control roomTypeRow = BuildLabeledOptionRow(
             "房间类型",
             out _roomTypeOption,
-            ("标准模式", 0),
-            ("多人每日挑战", 1),
-            ("自定义模式", 2));
+            LanConnectLanHostModeSelection.Options.Select(static option => (option.Label, option.Id)).ToArray());
         body.AddChild(roomTypeRow);
         _roomTypeOption.ItemSelected += OnCreateGameModeSelected;
         body.AddChild(BuildProtocolProfileRow());
@@ -3860,6 +3858,8 @@ internal sealed partial class LanConnectLobbyOverlay : Control
         {
             "daily" => ("挑战", BorderColor, SurfaceMutedColor),
             "custom" => ("自定义", BorderColor, AccentMutedColor),
+            "blitz" => ("极速", SuccessColor, new Color(SuccessColor, 0.15f)),
+            "dread" => ("恐惧", DangerColor, new Color(DangerColor, 0.15f)),
             _ => ("STD", BorderColor, SecondaryColor)
         };
     }
@@ -5064,15 +5064,7 @@ internal sealed partial class LanConnectLobbyOverlay : Control
         OnJoinRoomPressed(selectedRoom);
     }
 
-    private GameMode GetSelectedCreateGameMode()
-    {
-        return _selectedCreateGameModeId switch
-        {
-            1 => GameMode.Daily,
-            2 => LanConnectGameModeCompatibility.CustomSelection,
-            _ => GameMode.Standard
-        };
-    }
+    private GameMode GetSelectedCreateGameMode() => GameModeFromCreateId(_selectedCreateGameModeId);
 
     private void ResetCreateGameModeSelection()
     {
@@ -5092,9 +5084,11 @@ internal sealed partial class LanConnectLobbyOverlay : Control
         }
 
         LanConnectLanHostModeAvailability availability = GetCreateGameModeAvailability();
-        SetCreateGameModeOptionText(0, "标准模式", availability.Standard);
-        SetCreateGameModeOptionText(1, "多人每日挑战", availability.Daily);
-        SetCreateGameModeOptionText(2, "自定义模式", availability.Custom);
+        foreach (LanConnectLanHostModeOption option in LanConnectLanHostModeSelection.Options)
+        {
+            SetCreateGameModeOptionText(option.Id, option.Label,
+                LanConnectLanHostModeSelection.IsAvailable(option.Mode, availability));
+        }
 
         GameMode selectedMode = GetSelectedCreateGameMode();
         if (!IsCreateGameModeAvailable(selectedMode, availability))
@@ -5183,6 +5177,8 @@ internal sealed partial class LanConnectLobbyOverlay : Control
     {
         1 => GameMode.Daily,
         2 => LanConnectGameModeCompatibility.CustomSelection,
+        3 => LanConnectGameModeCompatibility.OptionalMode("Blitz"),
+        4 => LanConnectGameModeCompatibility.OptionalMode("Dread"),
         _ => GameMode.Standard
     };
 
@@ -5193,6 +5189,8 @@ internal sealed partial class LanConnectLobbyOverlay : Control
         GameMode.Standard => availability.Standard,
         GameMode.Daily => availability.Daily,
         var mode when LanConnectGameModeCompatibility.IsCustomSelection(mode) => availability.Custom,
+        var mode when mode.ToString() == "Blitz" => availability.Blitz,
+        var mode when mode.ToString() == "Dread" => availability.Dread,
         _ => false
     };
 
@@ -5200,6 +5198,8 @@ internal sealed partial class LanConnectLobbyOverlay : Control
     {
         GameMode.Daily => "多人每日挑战尚未解锁，当前不能创建该类型房间。",
         var mode when LanConnectGameModeCompatibility.IsCustomSelection(mode) => "自定义模式尚未解锁，当前不能创建该类型房间。",
+        var mode when mode.ToString() == "Blitz" => "极速模式尚未解锁，当前不能创建该类型房间。",
+        var mode when mode.ToString() == "Dread" => "恐惧模式尚未解锁，当前不能创建该类型房间。",
         _ => "该模式尚未解锁，当前不能创建房间。"
     };
 

@@ -24,7 +24,7 @@ namespace Sts2LanConnect.GdUnitTests.Protocol;
 /// </summary>
 [TestSuite]
 [RequireGodotRuntime]
-public sealed class LanConnectTailMessageRuntimeTests
+public sealed partial class LanConnectTailMessageRuntimeTests
 {
     private static readonly object InitializationSync = new();
     private static bool _initialized;

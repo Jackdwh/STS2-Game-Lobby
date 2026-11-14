@@ -43,7 +43,7 @@ internal sealed partial class LanConnectLanHostModePicker : LanConnectLobbyChoic
                     option.Id,
                     option.Label,
                     Describe(option.Mode),
-                    IsAvailable(option.Mode, availability),
+                    LanConnectLanHostModeSelection.IsAvailable(option.Mode, availability),
                     Primary: option.Mode == LanConnectLanHostMode.Standard))
                 .ToArray(),
             "返回");
@@ -89,21 +89,13 @@ internal sealed partial class LanConnectLanHostModePicker : LanConnectLobbyChoic
         }
     }
 
-    private static bool IsAvailable(
-        LanConnectLanHostMode mode,
-        LanConnectLanHostModeAvailability availability) => mode switch
-    {
-        LanConnectLanHostMode.Standard => availability.Standard,
-        LanConnectLanHostMode.Daily => availability.Daily,
-        LanConnectLanHostMode.Custom => availability.Custom,
-        _ => false
-    };
-
     private static string Describe(LanConnectLanHostMode mode) => mode switch
     {
         LanConnectLanHostMode.Standard => "按标准规则创建 ENet LAN Host。",
         LanConnectLanHostMode.Daily => "启动多人每日挑战的 LAN Host。",
         LanConnectLanHostMode.Custom => "进入自定义规则设置后创建 LAN Host。",
+        LanConnectLanHostMode.Blitz => "按极速模式规则创建 ENet LAN Host。",
+        LanConnectLanHostMode.Dread => "按恐惧模式规则创建 ENet LAN Host。",
         _ => string.Empty
     };
 }

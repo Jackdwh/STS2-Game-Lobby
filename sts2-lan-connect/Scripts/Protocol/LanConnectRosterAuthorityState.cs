@@ -56,6 +56,35 @@ internal sealed class LanConnectRosterAuthorityState
         }
     }
 
+    internal bool ApplyNativeDeparture(ulong transportSenderPeerId, ulong departedPlayerId)
+    {
+        if (transportSenderPeerId != _hostPeerId || departedPlayerId == _hostPeerId)
+        {
+            throw Invalid("Only the current host may remove a non-host player from the roster.");
+        }
+
+        lock (_sync)
+        {
+            if (_current == null || !_current.Players.Any(player => player.PlayerId == departedPlayerId))
+            {
+                return false;
+            }
+
+            LanConnectRosterPlayerCarrier[] remaining = _current.Players
+                .Where(player => player.PlayerId != departedPlayerId).ToArray();
+            LanConnectRosterSnapshot next = _current with { Players = Array.AsReadOnly(remaining) };
+            // PlayerLeft is an existing reliable native delta, not a new Tail snapshot.
+            // Both ends update the same baseline without consuming a snapshot revision.
+            // A host-only intermediate state is internal; the wire still requires 2..8.
+            byte[]? bytes = remaining.Length >= LanConnectConstants.ProtocolMinPlayers
+                ? LanConnectRosterCodec.Encode(next)
+                : null;
+            _current = next;
+            _currentCanonicalBytes = bytes;
+            return true;
+        }
+    }
+
     internal void Accept(
         ulong transportSenderPeerId,
         LanConnectRosterSnapshot snapshot,

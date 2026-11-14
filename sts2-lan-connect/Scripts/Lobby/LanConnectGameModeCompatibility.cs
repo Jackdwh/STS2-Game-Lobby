@@ -14,6 +14,55 @@ internal static class LanConnectGameModeCompatibility
 
     internal static bool IsCustomSelection(GameMode mode) => mode == CustomSelection;
 
+    internal static GameMode OptionalMode(string name) =>
+        Enum.TryParse(name, out GameMode mode) && Enum.IsDefined(mode) ? mode : GameMode.None;
+
+    internal static GameMode ToGameMode(LanConnectLanHostMode mode) => mode switch
+    {
+        LanConnectLanHostMode.Standard => GameMode.Standard,
+        LanConnectLanHostMode.Daily => GameMode.Daily,
+        LanConnectLanHostMode.Custom => CustomSelection,
+        LanConnectLanHostMode.Blitz => OptionalMode("Blitz"),
+        LanConnectLanHostMode.Dread => OptionalMode("Dread"),
+        _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, null)
+    };
+
+    internal static Type ResolveAdditionalStartScreen(GameMode mode)
+    {
+        string name = mode.ToString();
+        if (name is not ("Blitz" or "Dread"))
+        {
+            throw new ArgumentOutOfRangeException(nameof(mode), mode, "Not an additional game mode.");
+        }
+        return typeof(GameMode).Assembly.GetType(
+            $"MegaCrit.Sts2.Core.Nodes.Screens.{name}.N{name}Screen", throwOnError: true)!;
+    }
+
+    internal static string ResolveSavedModeName(
+        string? modeName, bool? isCustom, bool hasModifiers, bool hasDailyTime)
+    {
+        if (modeName == "Daily")
+        {
+            return "daily";
+        }
+        if (isCustom == true || modeName == "Custom")
+        {
+            return "custom";
+        }
+        if (modeName != null)
+        {
+            return modeName switch
+            {
+                "Standard" => "standard",
+                "Blitz" => "blitz",
+                "Dread" => "dread",
+                _ => throw new NotSupportedException($"Unsupported saved game mode: {modeName}.")
+            };
+        }
+        // Older saves expose neither a native mode nor the explicit custom flag.
+        return !hasModifiers ? "standard" : hasDailyTime ? "daily" : "custom";
+    }
+
     internal static object? ReadMember(object value, string name)
     {
         Type type = value.GetType();

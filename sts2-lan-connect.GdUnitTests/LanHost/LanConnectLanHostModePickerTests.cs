@@ -10,18 +10,20 @@ namespace Sts2LanConnect.GdUnitTests.LanHost;
 public sealed class LanConnectLanHostModePickerTests
 {
     [TestCase]
-    public async Task Picker_has_three_large_stable_mode_choices()
+    public async Task Picker_has_five_large_stable_mode_choices()
     {
         using PickerFixture fixture = await PickerFixture.Create();
 
         fixture.Picker.Open();
         await fixture.Runner.AwaitIdleFrame();
 
-        AssertThat(fixture.Picker.ChoiceCountForTests).IsEqual(3);
+        AssertThat(fixture.Picker.ChoiceCountForTests).IsEqual(5);
         AssertThat(fixture.Picker.ChoiceLabelsForTests).ContainsExactly(
             "标准模式",
             "多人每日挑战",
-            "自定义模式");
+            "自定义模式",
+            "极速模式",
+            "恐惧模式");
         AssertThat(fixture.Picker.PanelRectForTests.Size.X).IsGreaterEqual(700f);
     }
 
@@ -38,7 +40,7 @@ public sealed class LanConnectLanHostModePickerTests
         fixture.Picker.Open();
         await fixture.Runner.AwaitIdleFrame();
         AssertThat(fixture.Picker.ChoiceDisabledStatesForTests)
-            .IsEqual(new[] { false, true, true });
+            .IsEqual(new[] { false, true, true, true, true });
 
         fixture.Picker.Hide();
         availability = new(
@@ -49,7 +51,7 @@ public sealed class LanConnectLanHostModePickerTests
 
         await fixture.Runner.AwaitIdleFrame();
         AssertThat(fixture.Picker.ChoiceDisabledStatesForTests)
-            .IsEqual(new[] { true, false, false });
+            .IsEqual(new[] { true, false, false, true, true });
     }
 
     [TestCase]
@@ -192,7 +194,7 @@ public sealed class LanConnectLanHostModePickerTests
     private sealed class PickerFixture : IDisposable
     {
         private PickerFixture(
-            Control root,
+            Node root,
             LanConnectLanHostModePicker picker,
             ISceneRunner runner)
         {
@@ -201,7 +203,7 @@ public sealed class LanConnectLanHostModePickerTests
             Runner = runner;
         }
 
-        internal Control Root { get; }
+        internal Node Root { get; }
         internal LanConnectLanHostModePicker Picker { get; }
         internal ISceneRunner Runner { get; }
 
@@ -216,9 +218,18 @@ public sealed class LanConnectLanHostModePickerTests
                     Daily: true,
                     Custom: true)),
                 onSelected ?? (_ => Task.CompletedTask));
-            Control root = AutoFree(new Control())!;
+            SubViewport root = AutoFree(new SubViewport
+            {
+                Size = new Vector2I(1280, 720),
+                Size2DOverride = new Vector2I(1280, 720),
+                Size2DOverrideStretch = true,
+                Disable3D = true,
+                GuiEmbedSubwindows = true,
+                RenderTargetUpdateMode = SubViewport.UpdateMode.Always
+            })!;
             root.AddChild(picker);
             ISceneRunner runner = ISceneRunner.Load(root, autoFree: true);
+            await runner.AwaitIdleFrame();
             await runner.AwaitIdleFrame();
             return new PickerFixture(root, picker, runner);
         }

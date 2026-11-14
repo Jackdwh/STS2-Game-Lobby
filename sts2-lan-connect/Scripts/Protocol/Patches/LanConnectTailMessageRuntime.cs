@@ -11,6 +11,7 @@ using MegaCrit.Sts2.Core.Multiplayer.Messages.Lobby;
 using MegaCrit.Sts2.Core.Multiplayer.Serialization;
 using MegaCrit.Sts2.Core.Multiplayer.Transport;
 using MegaCrit.Sts2.Core.Multiplayer.Transport.ENet;
+using MegaCrit.Sts2.Core.Runs;
 using MegaCrit.Sts2.Core.Saves.Runs;
 
 namespace Sts2LanConnect.Scripts;
@@ -101,7 +102,9 @@ internal sealed class LanConnectTailMessageRuntime : ILanConnectTailMessageRunti
     [ThreadStatic]
     private static int _nativeSubmitDepth;
     [ThreadStatic]
-    private static bool _dispatchBypass;
+    private static INetMessage? _dispatchBypassMessage;
+    [ThreadStatic]
+    private static NetMessageBus? _dispatchBypassBus;
 
     internal static LanConnectTailMessageRuntime Shared { get; } = new();
 
@@ -118,7 +121,7 @@ internal sealed class LanConnectTailMessageRuntime : ILanConnectTailMessageRunti
     internal static bool HasPendingOutgoingRejectionForCurrentThread =>
         _outgoingRejections is { Count: > 0 };
 
-    internal static bool DispatchBypassForCurrentThread => _dispatchBypass;
+    internal static bool DispatchBypassForCurrentThread => _dispatchBypassMessage != null;
 
     internal void BindHost(
         NetHostGameService service,
@@ -392,6 +395,11 @@ internal sealed class LanConnectTailMessageRuntime : ILanConnectTailMessageRunti
             return null;
         }
 
+        if (TryObserveOutgoingDeparture(transport, isHostTransport, buffer, length))
+        {
+            return null;
+        }
+
         LanConnectNativePendingOutgoing? context = ResolvePendingTransportContext(
             buffer,
             length,
@@ -446,6 +454,56 @@ internal sealed class LanConnectTailMessageRuntime : ILanConnectTailMessageRunti
         catch (Exception exception)
         {
             AbortActiveBinding(binding, "native_transport_begin_failure", exception);
+            throw;
+        }
+    }
+
+    private bool TryObserveOutgoingDeparture(object transport, bool isHostTransport, byte[] buffer, int length)
+    {
+        LanConnectSessionProtocolSnapshot session = LanConnectSessionProtocolState.Shared.Current;
+        if (!isHostTransport || !session.IsActive || session.Selection?.Profile != LanConnectProtocolProfile.TailV1
+            || length < 1 || length > buffer.Length)
+        {
+            return false;
+        }
+
+        Binding? binding;
+        lock (_sync)
+        {
+            binding = _bindings.Values.FirstOrDefault(candidate => candidate.IsHost
+                && ReferenceEquals(ResolveTransport(candidate), transport));
+        }
+        if (binding == null || !MessageTypes.TryGetMessageType(buffer[0], out Type? type)
+            || type != typeof(PlayerLeftMessage))
+        {
+            return false;
+        }
+
+        try
+        {
+            binding.ThrowIfTerminated();
+            if (session.Selection != binding.Selection || length < LanConnectNativeBusMessage.VanillaWireHeaderBytes + sizeof(ulong))
+            {
+                throw new InvalidDataException("Native departure has an invalid session or truncated body.");
+            }
+            PacketReader reader = new();
+            reader.Reset(buffer);
+            _ = reader.ReadByte();
+            ulong sender = reader.ReadULong();
+            if (sender != binding.Service.NetId)
+            {
+                throw new InvalidDataException("Native departure must be authored by the bound host.");
+            }
+            PlayerLeftMessage departure = new();
+            departure.Deserialize(reader);
+            // Observe only: leave the vanilla packet and any third-party trailer untouched.
+            ClearPendingOutgoing(binding.Writer);
+            ObserveLobbyDeparture(binding, sender, departure.playerId);
+            return true;
+        }
+        catch (Exception exception)
+        {
+            AbortActiveBinding(binding, "native_departure_send_failure", exception);
             throw;
         }
     }
@@ -646,7 +704,8 @@ internal sealed class LanConnectTailMessageRuntime : ILanConnectTailMessageRunti
 
     public bool TryEnterNativeDispatch(NetMessageBus messageBus, INetMessage message, ulong senderId)
     {
-        if (_dispatchBypass)
+        if (_dispatchBypassMessage != null && ReferenceEquals(_dispatchBypassMessage, message)
+            && ReferenceEquals(_dispatchBypassBus, messageBus))
         {
             return true;
         }
@@ -669,8 +728,9 @@ internal sealed class LanConnectTailMessageRuntime : ILanConnectTailMessageRunti
         }
 
         bool isNative = message is LanConnectNativeBusMessage;
+        bool isDeparture = message is PlayerLeftMessage;
         bool isMatrix = TryGetIncomingMessageKind(message, out LanConnectSidecarMessageKind kind);
-        if (!isNative && !isMatrix)
+        if (!isNative && !isMatrix && !isDeparture)
         {
             return true;
         }
@@ -703,12 +763,66 @@ internal sealed class LanConnectTailMessageRuntime : ILanConnectTailMessageRunti
             return true;
         }
 
+        if (isDeparture)
+        {
+            binding.TryTakeRecordedTransportContext(message, out _);
+            return ApplyIncomingDeparture(binding, (PlayerLeftMessage)message, context, snapshot.Selection);
+        }
+
         if (isNative)
         {
             return HandleExtensionFrame(binding, messageBus, (LanConnectNativeBusMessage)message, context);
         }
 
         return HoldMatrixMessage(binding, message, kind, context);
+    }
+
+    private static void ObserveLobbyDeparture(Binding binding, ulong senderPeerId, ulong departedPlayerId)
+    {
+        ulong hostPeerId = GetHostPeerId(binding.Service);
+        if (senderPeerId != hostPeerId || departedPlayerId == hostPeerId)
+        {
+            throw new InvalidDataException("Only the current host may announce a non-host departure.");
+        }
+        // RunLobby also emits PlayerLeft, but rejoin snapshots retain ALL saved roles.
+        // Only preparation/load lobbies remove a role from their authoritative roster.
+        RunManager run = RunManager.Instance;
+        if (run.IsInProgress && ReferenceEquals(run.NetService, binding.Service))
+        {
+            return;
+        }
+        binding.RequireRoster().ApplyNativeDeparture(senderPeerId, departedPlayerId);
+    }
+
+    private bool ApplyIncomingDeparture(
+        Binding binding,
+        PlayerLeftMessage message,
+        LanConnectTransportReceiveContext context,
+        LanConnectProtocolSelection selection)
+    {
+        try
+        {
+            binding.ThrowIfTerminated();
+            if (binding.IsHost || context.SenderPeerId != GetHostPeerId(binding.Service)
+                || context.Channel != 0 || selection != binding.Selection)
+            {
+                throw new InvalidDataException("Native departure has no matching host transport authority.");
+            }
+            BarrierKey key = new(context.SenderPeerId, context.Channel);
+            if (binding.BarrierHolds.Remove(key, out HeldMessage? held))
+            {
+                FailPeer(binding, context.SenderPeerId, "lan_extension_missing",
+                    $"Native departure interrupted the extension frame for {held.Kind}.");
+                return false;
+            }
+            ObserveLobbyDeparture(binding, context.SenderPeerId, message.playerId);
+            return true;
+        }
+        catch (Exception exception) when (exception is InvalidDataException or LanConnectProtocolException)
+        {
+            FailPeer(binding, context.SenderPeerId, "lan_protocol_version_mismatch", exception.Message);
+            return false;
+        }
     }
 
     private bool HandleExtensionFrame(
@@ -794,15 +908,20 @@ internal sealed class LanConnectTailMessageRuntime : ILanConnectTailMessageRunti
             return false;
         }
 
-        // 先应用扩展语义（projection 已恢复），再经 bypass 分发原版 handler。
-        _dispatchBypass = true;
+        // Only this validated message bypasses the barrier. A handler may dispatch
+        // another message (including PlayerLeft), which still needs its own authority.
+        INetMessage? previousBypass = _dispatchBypassMessage;
+        NetMessageBus? previousBus = _dispatchBypassBus;
+        _dispatchBypassMessage = held.Message;
+        _dispatchBypassBus = messageBus;
         try
         {
             messageBus.SendMessageToAllHandlers(held.Message, context.SenderPeerId);
         }
         finally
         {
-            _dispatchBypass = false;
+            _dispatchBypassMessage = previousBypass;
+            _dispatchBypassBus = previousBus;
         }
 
         return false;
@@ -1159,11 +1278,11 @@ internal sealed class LanConnectTailMessageRuntime : ILanConnectTailMessageRunti
         LanConnectRosterSnapshot snapshot,
         Binding binding)
     {
-        AcceptRoster(binding, snapshot, LanConnectRosterSnapshotUse.Bootstrap);
         List<LoadRunLobbyPlayer> restored = RestoreLoadJoinPlayers(
             snapshot,
             message.serializableRun.Players,
             message.playersAlreadyConnected);
+        AcceptRoster(binding, snapshot, LanConnectRosterSnapshotUse.Bootstrap);
         SetBoxedField(boxedMessage, nameof(ClientLoadJoinResponseMessage.playersAlreadyConnected), restored);
     }
 
@@ -1245,19 +1364,39 @@ internal sealed class LanConnectTailMessageRuntime : ILanConnectTailMessageRunti
         where TPlayer : IPacketSerializable, new()
     {
         LanConnectTailPlayerAccessors<TPlayer> accessors = ResolvePlayerAccessors<TPlayer>();
+        Dictionary<ulong, int> savedSlots = new();
+        for (int index = 0; index < savedPlayers.Count; index++)
+        {
+            if (!savedSlots.TryAdd(savedPlayers[index].NetId, index))
+            {
+                throw new InvalidDataException("Saved-run player IDs must be unique.");
+            }
+        }
+        HashSet<ulong> connectedIds = [];
+        foreach (TPlayer player in alreadyConnected)
+        {
+            if (!connectedIds.Add(accessors.GetId(player)))
+            {
+                throw new InvalidDataException("Loaded-lobby vanilla membership contains a duplicate player ID.");
+            }
+        }
+
         List<TPlayer> restored = snapshot.Players.Select(carrier =>
         {
             TPlayer player = DeserializeCarrier<TPlayer>(carrier, out uint consumed);
             if (consumed != carrier.VanillaPlayerBitLength
                 || accessors.GetId(player) != carrier.PlayerId
-                || savedPlayers.FindIndex(saved => saved.NetId == accessors.GetId(player)) != carrier.RealSlotId)
+                || !savedSlots.TryGetValue(carrier.PlayerId, out int savedSlot)
+                || savedSlot != carrier.RealSlotId)
             {
                 throw new InvalidDataException("Loaded-lobby roster carrier disagrees with the run/player binding.");
             }
             return player;
         }).ToList();
-        if (!alreadyConnected.Select(accessors.GetId)
-            .SequenceEqual(restored.Select(accessors.GetId)))
+        // The native list is in arrival order; the Tail roster is in saved-slot order.
+        // Exact unique membership matters, not which free role was inherited first.
+        if (alreadyConnected.Count != restored.Count
+            || !connectedIds.SetEquals(restored.Select(accessors.GetId)))
         {
             throw new InvalidDataException("Loaded-lobby vanilla membership disagrees with the Tail roster.");
         }

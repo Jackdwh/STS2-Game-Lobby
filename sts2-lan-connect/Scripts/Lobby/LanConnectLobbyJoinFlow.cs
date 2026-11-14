@@ -476,9 +476,7 @@ internal static class LanConnectLobbyJoinFlow
                 }
                 case var mode when mode.ToString() is "Blitz" or "Dread":
                 {
-                    string name = mode.ToString();
-                    Type screenType = typeof(NSubmenu).Assembly.GetType(
-                        $"MegaCrit.Sts2.Core.Nodes.Screens.{name}.N{name}Screen", throwOnError: true)!;
+                    Type screenType = LanConnectGameModeCompatibility.ResolveAdditionalStartScreen(mode);
                     NSubmenu submenu = stack.GetSubmenuType(screenType);
                     System.Reflection.MethodInfo initialize = screenType.GetMethod("InitializeMultiplayerAsClient")
                         ?? throw new MissingMethodException(screenType.FullName, "InitializeMultiplayerAsClient");

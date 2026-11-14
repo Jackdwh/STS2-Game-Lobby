@@ -313,9 +313,15 @@ internal static class LanConnectMultiplayerSaveCompatibility
         }
 
         GD.Print($"sts2_lan_connect save_compat: abandon backup created path={backupPath}");
+        string? progressWarning = null;
         try
         {
-            SaveManager.Instance.UpdateProgressWithRunData(run, victory: false);
+            bool? progressApplied = LanConnectProgressUpdateCompatibility.Update(SaveManager.Instance, run, victory: false);
+            if (progressApplied == false)
+            {
+                progressWarning = "注意：游戏未将本局计入本地进度，删除前备份已保留。";
+                Log.Warn("sts2_lan_connect save_compat: abandon progress update was not applied; continuing the confirmed abandon after backup.");
+            }
             RunHistoryUtilities.CreateRunHistoryEntry(run, victory: false, isAbandoned: true, run.PlatformType);
             if (run.DailyTime.HasValue)
             {
@@ -325,6 +331,7 @@ internal static class LanConnectMultiplayerSaveCompatibility
         }
         catch (Exception ex)
         {
+            progressWarning = "注意：本局进度或历史记录更新未完成，删除前备份已保留。";
             Log.Error($"ERROR: Failed to upload run history/metrics: {ex}");
         }
 
@@ -344,7 +351,8 @@ internal static class LanConnectMultiplayerSaveCompatibility
         GD.Print(
             $"sts2_lan_connect save_compat: abandon completed removedBinding={removedBinding}, saveKey={saveKey}, backupPath={backupPath}");
         submenu.Call(NMultiplayerSubmenu.MethodName.UpdateButtons);
-        LanConnectPopupUtil.ShowInfo($"多人存档已放弃。删除前备份保存在：\n{backupPath}");
+        string progressNote = progressWarning == null ? string.Empty : $"\n{progressWarning}";
+        LanConnectPopupUtil.ShowInfo($"多人存档已放弃。{progressNote}\n删除前备份保存在：\n{backupPath}");
     }
 
     private static async Task<bool> ConfirmPermanentAbandonAsync(NMultiplayerSubmenu submenu)
@@ -384,16 +392,16 @@ internal static class LanConnectMultiplayerSaveCompatibility
 
     private static void PushLoadedRunScreen(NSubmenuStack stack, NetHostGameService netService, SerializableRun run)
     {
-        if (run.Modifiers.Count > 0)
+        string mode = LanConnectMultiplayerSaveRoomBinding.GetLobbyGameMode(run);
+        if (mode == "daily")
         {
-            if (run.DailyTime.HasValue)
-            {
-                NDailyRunLoadScreen submenu = stack.GetSubmenuType<NDailyRunLoadScreen>();
-                submenu.InitializeAsHost(netService, run);
-                stack.Push(submenu);
-                return;
-            }
-
+            NDailyRunLoadScreen submenu = stack.GetSubmenuType<NDailyRunLoadScreen>();
+            submenu.InitializeAsHost(netService, run);
+            stack.Push(submenu);
+            return;
+        }
+        if (mode == "custom")
+        {
             NCustomRunLoadScreen submenuCustom = stack.GetSubmenuType<NCustomRunLoadScreen>();
             submenuCustom.InitializeAsHost(netService, run);
             stack.Push(submenuCustom);
